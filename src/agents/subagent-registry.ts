@@ -757,7 +757,7 @@ async function finalizeSubagentCleanup(
     completeCleanupBookkeeping({
       runId,
       entry,
-      cleanup: "keep",
+      cleanup,
       completedAt: now,
     });
     return;
