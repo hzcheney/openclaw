@@ -3,6 +3,22 @@ import type { TelegramInlineButtons } from "./button-types.js";
 import type { TelegramDraftStream } from "./draft-stream.js";
 
 export type LaneName = "answer" | "reasoning";
+const MESSAGE_NOT_MODIFIED_RE =
+  /400:\s*Bad Request:\s*message is not modified|MESSAGE_NOT_MODIFIED/i;
+
+function isMessageNotModifiedError(err: unknown): boolean {
+  const text =
+    typeof err === "string"
+      ? err
+      : err instanceof Error
+        ? err.message
+        : typeof err === "object" && err && "description" in err
+          ? typeof err.description === "string"
+            ? err.description
+            : ""
+          : "";
+  return MESSAGE_NOT_MODIFIED_RE.test(text);
+}
 
 export type DraftLaneState = {
   stream: TelegramDraftStream | undefined;
@@ -216,6 +232,13 @@ export function createLaneTextDeliverer(params: CreateLaneTextDelivererParams) {
       params.markDelivered();
       return true;
     } catch (err) {
+      if (isMessageNotModifiedError(err)) {
+        params.log(
+          `telegram: ${args.laneName} preview ${args.context} already up-to-date; treating as delivered`,
+        );
+        params.markDelivered();
+        return true;
+      }
       if (args.treatEditFailureAsDelivered) {
         params.log(
           `telegram: ${args.laneName} preview ${args.context} edit failed after stop-created flush; treating as delivered (${String(err)})`,
