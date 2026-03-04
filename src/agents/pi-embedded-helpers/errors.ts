@@ -477,12 +477,46 @@ export function formatRawAssistantErrorForUi(raw?: string): string {
   return trimmed.length > 600 ? `${trimmed.slice(0, 600)}…` : trimmed;
 }
 
+function extractAssistantContentErrorMessage(msg: AssistantMessage): string {
+  const content = Array.isArray(msg.content) ? msg.content : [];
+  const fragments: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") {
+      continue;
+    }
+    const text = (block as { text?: unknown }).text;
+    if (typeof text === "string" && text.trim()) {
+      fragments.push(text.trim());
+      continue;
+    }
+    const message = (block as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) {
+      fragments.push(message.trim());
+    }
+  }
+  return fragments.join("\n").trim();
+}
+
+function resolveAssistantErrorMessage(msg: AssistantMessage | undefined): string {
+  if (!msg) {
+    return "";
+  }
+  const direct = (msg.errorMessage ?? "").trim();
+  if (direct) {
+    return direct;
+  }
+  if (msg.stopReason !== "error") {
+    return "";
+  }
+  return extractAssistantContentErrorMessage(msg);
+}
+
 export function formatAssistantErrorText(
   msg: AssistantMessage,
   opts?: { cfg?: OpenClawConfig; sessionKey?: string; provider?: string; model?: string },
 ): string | undefined {
   // Also format errors if errorMessage is present, even if stopReason isn't "error"
-  const raw = (msg.errorMessage ?? "").trim();
+  const raw = resolveAssistantErrorMessage(msg);
   if (msg.stopReason !== "error" && !raw) {
     return undefined;
   }
@@ -625,7 +659,7 @@ export function isRateLimitAssistantError(msg: AssistantMessage | undefined): bo
   if (!msg || msg.stopReason !== "error") {
     return false;
   }
-  return isRateLimitErrorMessage(msg.errorMessage ?? "");
+  return isRateLimitErrorMessage(resolveAssistantErrorMessage(msg));
 }
 
 const TOOL_CALL_INPUT_MISSING_RE =
@@ -649,7 +683,7 @@ export function isBillingAssistantError(msg: AssistantMessage | undefined): bool
   if (!msg || msg.stopReason !== "error") {
     return false;
   }
-  return isBillingErrorMessage(msg.errorMessage ?? "");
+  return isBillingErrorMessage(resolveAssistantErrorMessage(msg));
 }
 
 function isJsonApiInternalServerError(raw: string): boolean {
@@ -722,7 +756,7 @@ export function isAuthAssistantError(msg: AssistantMessage | undefined): boolean
   if (!msg || msg.stopReason !== "error") {
     return false;
   }
-  return isAuthErrorMessage(msg.errorMessage ?? "");
+  return isAuthErrorMessage(resolveAssistantErrorMessage(msg));
 }
 
 export function isModelNotFoundErrorMessage(raw: string): boolean {
@@ -829,5 +863,5 @@ export function isFailoverAssistantError(msg: AssistantMessage | undefined): boo
   if (!msg || msg.stopReason !== "error") {
     return false;
   }
-  return isFailoverErrorMessage(msg.errorMessage ?? "");
+  return isFailoverErrorMessage(resolveAssistantErrorMessage(msg));
 }
