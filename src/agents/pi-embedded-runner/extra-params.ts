@@ -28,9 +28,60 @@ export function resolveExtraParams(params: {
   modelId: string;
   agentId?: string;
 }): Record<string, unknown> | undefined {
-  const modelKey = `${params.provider}/${params.modelId}`;
-  const modelConfig = params.cfg?.agents?.defaults?.models?.[modelKey];
-  const globalParams = modelConfig?.params ? { ...modelConfig.params } : undefined;
+  const models = params.cfg?.agents?.defaults?.models;
+  const provider = params.provider.trim();
+  const modelId = params.modelId.trim();
+  const modelIdLower = modelId.toLowerCase();
+  const resolveEntryParams = (entry: unknown): Record<string, unknown> | undefined => {
+    const candidate = (entry as { params?: unknown } | undefined)?.params;
+    return candidate && typeof candidate === "object"
+      ? { ...(candidate as Record<string, unknown>) }
+      : undefined;
+  };
+  const globalParams = (() => {
+    if (!models || !provider || !modelId) {
+      return undefined;
+    }
+
+    const exactKey = `${provider}/${modelId}`;
+    const exact = resolveEntryParams(models[exactKey]);
+    if (exact) {
+      return exact;
+    }
+
+    const providerLower = provider.toLowerCase();
+    const providerCandidates = new Set<string>([providerLower]);
+    if (providerLower === "openai") {
+      providerCandidates.add("openai-codex");
+    } else if (providerLower === "openai-codex") {
+      providerCandidates.add("openai");
+    }
+
+    for (const candidateProvider of providerCandidates) {
+      for (const [rawKey, entry] of Object.entries(models)) {
+        const slashIndex = rawKey.indexOf("/");
+        if (slashIndex <= 0) {
+          continue;
+        }
+        const keyProvider = rawKey.slice(0, slashIndex).trim().toLowerCase();
+        if (keyProvider !== candidateProvider) {
+          continue;
+        }
+        const keyModel = rawKey.slice(slashIndex + 1).trim();
+        if (!keyModel) {
+          continue;
+        }
+        if (keyModel === modelId || keyModel.toLowerCase() === modelIdLower) {
+          const matched = resolveEntryParams(entry);
+          if (matched) {
+            return matched;
+          }
+        }
+      }
+    }
+
+    return undefined;
+  })();
   const agentParams =
     params.agentId && params.cfg?.agents?.list
       ? params.cfg.agents.list.find((agent) => agent.id === params.agentId)?.params
