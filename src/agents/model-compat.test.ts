@@ -23,6 +23,11 @@ function supportsDeveloperRole(model: Model<Api>): boolean | undefined {
   return (model.compat as { supportsDeveloperRole?: boolean } | undefined)?.supportsDeveloperRole;
 }
 
+function supportsUsageInStreaming(model: Model<Api>): boolean | undefined {
+  return (model.compat as { supportsUsageInStreaming?: boolean } | undefined)
+    ?.supportsUsageInStreaming;
+}
+
 function createTemplateModel(provider: string, id: string): Model<Api> {
   return {
     id,
@@ -177,6 +182,17 @@ describe("normalizeModelCompat", () => {
     });
   });
 
+  it("forces supportsUsageInStreaming off for generic custom openai-completions provider", () => {
+    const model = {
+      ...baseModel(),
+      provider: "custom-cpa",
+      baseUrl: "https://cpa.example.com/v1",
+    };
+    delete (model as { compat?: unknown }).compat;
+    const normalized = normalizeModelCompat(model as Model<Api>);
+    expect(supportsUsageInStreaming(normalized)).toBe(false);
+  });
+
   it("forces supportsDeveloperRole off for Qwen proxy via openai-completions", () => {
     expectSupportsDeveloperRoleForcedOff({
       provider: "qwen-proxy",
@@ -195,6 +211,17 @@ describe("normalizeModelCompat", () => {
     expect(normalized.compat).toBeUndefined();
   });
 
+  it("does not force supportsUsageInStreaming off for native api.openai.com", () => {
+    const model = {
+      ...baseModel(),
+      provider: "openai",
+      baseUrl: "https://api.openai.com/v1",
+    };
+    delete (model as { compat?: unknown }).compat;
+    const normalized = normalizeModelCompat(model as Model<Api>);
+    expect(supportsUsageInStreaming(normalized)).toBeUndefined();
+  });
+
   it("forces supportsDeveloperRole off for malformed baseUrl values", () => {
     expectSupportsDeveloperRoleForcedOff({
       provider: "custom-cpa",
@@ -211,6 +238,28 @@ describe("normalizeModelCompat", () => {
     };
     const normalized = normalizeModelCompat(model);
     expect(supportsDeveloperRole(normalized)).toBe(false);
+  });
+
+  it("overrides explicit supportsUsageInStreaming true on non-native endpoints", () => {
+    const model = {
+      ...baseModel(),
+      provider: "custom-proxy",
+      baseUrl: "https://proxy.example.com/v1",
+      compat: { supportsUsageInStreaming: true },
+    };
+    const normalized = normalizeModelCompat(model);
+    expect(supportsUsageInStreaming(normalized)).toBe(false);
+  });
+
+  it("returns original model when both compat flags are already false", () => {
+    const model = {
+      ...baseModel(),
+      provider: "custom-proxy",
+      baseUrl: "https://proxy.example.com/v1",
+      compat: { supportsDeveloperRole: false, supportsUsageInStreaming: false },
+    };
+    const normalized = normalizeModelCompat(model);
+    expect(normalized).toBe(model);
   });
 
   it("does not mutate caller model when forcing supportsDeveloperRole off", () => {

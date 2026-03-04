@@ -52,28 +52,34 @@ export function normalizeModelCompat(model: Model<Api>): Model<Api> {
     return model;
   }
 
-  // The `developer` message role is an OpenAI-native convention. All other
-  // openai-completions backends (proxies, Qwen, GLM, DeepSeek, Kimi, etc.)
-  // only recognise `system`. Force supportsDeveloperRole=false for any model
-  // whose baseUrl is not a known native OpenAI endpoint, unless the caller
-  // has already pinned the value explicitly.
+  // The `developer` role and usage-in-streaming semantics are OpenAI-native
+  // assumptions. For non-native openai-completions backends (proxies, Qwen,
+  // GLM, DeepSeek, Kimi, etc.), force safe compatibility defaults:
+  // - supportsDeveloperRole=false (many backends accept only `system`)
+  // - supportsUsageInStreaming=false (usage-only chunks can break parsers that
+  //   assume chunk.choices[0] exists)
   const compat = model.compat ?? undefined;
-  if (compat?.supportsDeveloperRole === false) {
-    return model;
-  }
   // When baseUrl is empty the pi-ai library defaults to api.openai.com, so
   // leave compat unchanged and let the existing default behaviour apply.
-  // Note: an explicit supportsDeveloperRole: true is intentionally overridden
-  // here for non-native endpoints — those backends would return a 400 if we
-  // sent `developer`, so safety takes precedence over the caller's hint.
+  // Note: explicit compat=true hints are intentionally overridden for non-native
+  // endpoints because these assumptions can cause request failures.
   const needsForce = baseUrl ? !isOpenAINativeEndpoint(baseUrl) : false;
   if (!needsForce) {
+    return model;
+  }
+  const forceDeveloperRole = compat?.supportsDeveloperRole !== false;
+  const forceUsageStreaming = compat?.supportsUsageInStreaming !== false;
+  if (!forceDeveloperRole && !forceUsageStreaming) {
     return model;
   }
 
   // Return a new object — do not mutate the caller's model reference.
   return {
     ...model,
-    compat: compat ? { ...compat, supportsDeveloperRole: false } : { supportsDeveloperRole: false },
+    compat: {
+      ...compat,
+      ...(forceDeveloperRole ? { supportsDeveloperRole: false } : {}),
+      ...(forceUsageStreaming ? { supportsUsageInStreaming: false } : {}),
+    },
   } as typeof model;
 }
