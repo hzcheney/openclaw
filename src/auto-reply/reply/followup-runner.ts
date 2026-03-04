@@ -10,6 +10,7 @@ import type { TypingMode } from "../../config/types.js";
 import { logVerbose } from "../../globals.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
 import { defaultRuntime } from "../../runtime.js";
+import { maybeApplyTtsToPayload } from "../../tts/tts.js";
 import { stripHeartbeatToken } from "../heartbeat.js";
 import type { OriginatingChannelType } from "../templating.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../tokens.js";
@@ -73,6 +74,7 @@ export function createFollowupRunner(params: {
     // Check if we should route to originating channel.
     const { originatingChannel, originatingTo } = queued;
     const shouldRouteToOriginating = isRoutableChannel(originatingChannel) && originatingTo;
+    const ttsChannel = shouldRouteToOriginating ? originatingChannel : queued.run.messageProvider;
 
     if (!shouldRouteToOriginating && !opts?.onBlockReply) {
       logVerbose("followup queue: no onBlockReply handler; dropping payloads");
@@ -90,12 +92,19 @@ export function createFollowupRunner(params: {
       ) {
         continue;
       }
+      const ttsPayload = await maybeApplyTtsToPayload({
+        payload,
+        cfg: queued.run.config,
+        channel: ttsChannel,
+        kind: "final",
+        ttsAuto: sessionEntry?.ttsAuto,
+      });
       await typingSignals.signalTextDelta(payload.text);
 
       // Route to originating channel if set, otherwise fall back to dispatcher.
       if (shouldRouteToOriginating) {
         const result = await routeReply({
-          payload,
+          payload: ttsPayload,
           channel: originatingChannel,
           to: originatingTo,
           sessionKey: queued.run.sessionKey,
@@ -119,11 +128,11 @@ export function createFollowupRunner(params: {
             originatingChannel,
           });
           if (opts?.onBlockReply && origin && origin === provider) {
-            await opts.onBlockReply(payload);
+            await opts.onBlockReply(ttsPayload);
           }
         }
       } else if (opts?.onBlockReply) {
-        await opts.onBlockReply(payload);
+        await opts.onBlockReply(ttsPayload);
       }
     }
   };
